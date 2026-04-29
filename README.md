@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+```markdown
+# Digital EHS Compliance Portal
 
-## Getting Started
+An **AI-Powered Environment, Health & Safety (EHS) Compliance Management System** built with Next.js, Supabase, and Google Gemini 2.5 Flash.
 
-First, run the development server:
+---
 
+## 🛠 Tech Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | Next.js 15 (App Router), TypeScript, Tailwind CSS |
+| **Backend** | Next.js Server Actions & API Routes |
+| **Database** | Supabase (PostgreSQL + `pgvector`) |
+| **AI Engine** | Google Gemini 2.5 Flash + `text-embedding-004` |
+| **Auth** | Supabase Auth with Row-Level Security (RLS) |
+
+---
+
+## 🚀 Setup Instructions
+
+### 1. Clone and install dependencies
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone <your-repo-url>
+cd ehs-portal
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Create Supabase project
+1. Go to [supabase.com](https://supabase.com) and create a new project.
+2. In the **SQL Editor**, run the full migration file: `/supabase/migrations/001_initial_schema.sql`.
+3. This script initializes all tables, RLS policies, seed data, and the vector search functions.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3. Get your Gemini API key
+1. Go to [aistudio.google.com](https://aistudio.google.com).
+2. Create an API key for the Gemini API.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4. Configure environment variables
+Create a `.env.local` file in the root directory:
+```bash
+cp .env.local.example .env.local
+```
 
-## Learn More
+Fill in your credentials:
+```env
+NEXT_PUBLIC_SUPABASE_URL=[https://yourproject.supabase.co](https://yourproject.supabase.co)
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+GEMINI_API_KEY=your_gemini_api_key
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 5. Create your first user
+In **Supabase → Authentication → Users → Invite user**, or use the Supabase client:
+```typescript
+await supabase.auth.signUp({
+  email: 'manager@yourcompany.com',
+  password: 'securepassword',
+  options: { 
+    data: { 
+      full_name: 'EHS Manager', 
+      role: 'ehs_manager' 
+    } 
+  }
+})
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 6. Run development server
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) to view the result.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 📂 Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+src/
+├── app/
+│   ├── auth/login/          # Login page
+│   ├── dashboard/           # Protected dashboard
+│   │   ├── page.tsx         # Overview with heatmap
+│   │   ├── assets/          # Asset registry
+│   │   ├── inspections/     # Inspection list + new inspection
+│   │   └── reports/         # Analytics by asset type
+│   └── api/
+│       └── ai-audit/        # RAG pipeline API endpoint
+├── components/
+│   ├── dashboard/           # Sidebar, heatmap, recent inspections
+│   └── inspection/          # Interactive checklist form
+├── lib/
+│   ├── supabase/            # Client, server, middleware helpers
+│   └── gemini.ts            # Gemini AI + embedding functions
+└── types/index.ts           # All TypeScript types
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## 🤖 How the AI RAG Pipeline Works
+
+1. **Failure Detection:** Inspector marks a checklist item as **Fail**.
+2. **Vectorization:** The system generates a vector embedding of the failure description.
+3. **Semantic Search:** `pgvector` searches the regulations table for semantically similar legal clauses.
+4. **AI Reasoning:** The matching law text + failure description are sent to **Gemini 2.5 Flash**.
+5. **Structured Output:** Gemini returns a JSON verdict including breach level, legal references, and recommended actions.
+6. **Automation:** The verdict is saved to the `responses` table and displayed inline. If a critical breach is detected, the manager is alerted immediately.
+
+---
+```
