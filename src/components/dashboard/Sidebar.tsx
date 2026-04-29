@@ -29,7 +29,7 @@ export default function Sidebar({ profile }: { profile: User | null }) {
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-white border-r border-[var(--color-border)]
-                      flex flex-col z-40 hidden md:flex">
+                      flex-col z-40 hidden md:flex">
       {/* Logo */}
       <div className="p-6 border-b border-[var(--color-border)]">
         <div className="flex items-center gap-3">
