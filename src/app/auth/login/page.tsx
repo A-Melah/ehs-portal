@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ShieldCheck, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
-  const router = useRouter();
+  const router   = useRouter();
   const supabase = createClient();
 
   const [email, setEmail]       = useState('');
@@ -18,20 +18,31 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(error.message);
+    if (signInError) {
+      setError(signInError.message);
       setLoading(false);
+      return;
+    }
+
+    // Fetch role and redirect accordingly
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profile?.role === 'shopfloor_worker') {
+      router.push('/report');
     } else {
       router.push('/dashboard');
-      router.refresh();
     }
+    router.refresh();
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--color-surface)] px-4">
-      {/* Background texture */}
       <div className="absolute inset-0 opacity-30"
         style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, #15b36e22 0%, transparent 50%), radial-gradient(circle at 80% 20%, #0a915922 0%, transparent 50%)' }}
       />
@@ -85,7 +96,8 @@ export default function LoginPage() {
               </p>
             )}
 
-            <button onClick={handleLogin} disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+            <button onClick={handleLogin} disabled={loading}
+              className="btn-primary w-full flex items-center justify-center gap-2 py-3">
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}
               {loading ? 'Signing in…' : 'Sign in'}
             </button>

@@ -34,7 +34,7 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
-  ],
+, "src/components/dashboard/admin/RoleEditor.tsx.bak", "src/components/dashboard/admin/InviteModal.tsx.bak", "list-models.mjs"  ],
   "exclude": [
     "node_modules"
   ]

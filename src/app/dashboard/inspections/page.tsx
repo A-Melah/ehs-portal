@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { ClipboardList, Plus, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { ClipboardList, Plus, CheckCircle, AlertTriangle, Clock, Download } from 'lucide-react';
 
 const statusConfig = {
   completed:   { icon: CheckCircle,  color: 'text-brand-600', bg: 'bg-brand-50',  label: 'Completed' },
@@ -44,6 +44,7 @@ export default async function InspectionsPage() {
                 <th className="text-left px-5 py-3 text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide">Score</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide">Status</th>
                 <th className="text-left px-5 py-3 text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide">Date</th>
+              <th className="text-left px-5 py-3 text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide">Report</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--color-border)]">
@@ -71,6 +72,18 @@ export default async function InspectionsPage() {
                     </td>
                     <td className="px-5 py-3.5 text-[var(--color-muted)] text-xs">
                       {new Date(ins.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <a
+                        href={'/api/reports/' + ins.id}
+                        download
+                        className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)]
+                                   hover:text-brand-600 transition-colors"
+                        title="Download PDF report"
+                      >
+                        <Download size={13} />
+                        PDF
+                      </a>
                     </td>
                   </tr>
                 );

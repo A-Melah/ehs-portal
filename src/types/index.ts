@@ -18,9 +18,9 @@ export interface Asset {
   name: string;
   type: string;
   location: string;
-  status?: AssetStatus; // Added '?' to make it optional
+  status: AssetStatus;
   qr_code?: string;
-  created_at?: string;  // Added '?' to make it optional
+  created_at: string;
 }
 
 export interface Regulation {
@@ -108,4 +108,86 @@ export interface IncidentTrend {
 export interface InspectionFormState {
   asset_id: string;
   responses: Record<string, { value: boolean | null; media_url?: string }>;
+}
+
+// ─── Hazard Report Types ──────────────────────────────────────────────────────
+
+export type HazardSeverity = 'low' | 'moderate' | 'high' | 'critical';
+export type HazardStatus   = 'open' | 'in_review' | 'resolved';
+
+export interface HazardReport {
+  id: string;
+  reporter_id: string | null;  // null = anonymous submission
+  location: string;
+  description: string;
+  severity: HazardSeverity;
+  evidence_url?: string;
+  status: HazardStatus;
+  created_at: string;
+  reporter?: User;
+}
+
+// ─── Compliance Audit Types ───────────────────────────────────────────────────
+
+export type ComplianceArea = 'Safety' | 'Health' | 'Environment';
+export type LineItemStatus = 'compliant' | 'non_compliant' | 'not_applicable' | 'not_assessed';
+export type AuditStatus    = 'in_progress' | 'completed' | 'submitted';
+
+export interface FacilitySection {
+  id:          string;
+  name:        string;
+  description: string;
+  active:      boolean;
+  order_index: number;
+}
+
+export interface LegalRequirement {
+  id:                   string;
+  area:                 ComplianceArea;
+  legal_document:       string;
+  source_section:       string;
+  specific_requirement: string;
+  compliance_measures:  string;
+  owner:                string;
+  default_frequency:    string;
+  applies_to_sections:  string[];
+}
+
+export interface ComplianceAudit {
+  id:            string;
+  title:         string;
+  auditor_id:    string;
+  sections:      string[];
+  status:        AuditStatus;
+  overall_score: number | null;
+  notes:         string | null;
+  period:        string | null;
+  created_at:    string;
+  completed_at:  string | null;
+  auditor?:      User;
+}
+
+export interface AuditLineItem {
+  id:                 string;
+  audit_id:           string;
+  requirement_id:     string;
+  section:            string;
+  status:             LineItemStatus;
+  inspector_notes:    string | null;
+  evidence_url:       string | null;
+  ai_verdict:         string | null;
+  ai_override_status: LineItemStatus | null;
+  ai_override_reason: string | null;
+  responsible_person: string | null;
+  due_date:           string | null;
+  requirement?:       LegalRequirement;
+}
+
+export interface ComplianceSummaryByArea {
+  area:          ComplianceArea;
+  total:         number;
+  compliant:     number;
+  non_compliant: number;
+  not_assessed:  number;
+  score:         number;
 }

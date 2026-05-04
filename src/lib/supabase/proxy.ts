@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { type ResponseCookie } from 'next/dist/compiled/@edge-runtime/cookies';
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -13,18 +12,12 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        // We type 'cookiesToSet' as an array of ResponseCookie
-        setAll(cookiesToSet: ResponseCookie[]) {
-          // 1. Sync the incoming request cookies
+        setAll(cookiesToSet: Array<{ name: string; value: string; options?: any }>) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          
-          // 2. Initialize the response
           supabaseResponse = NextResponse.next({ request });
-          
-          // 3. Sync the outgoing response cookies using the Rest operator
-          cookiesToSet.forEach(({ name, value, ...options }) =>
+          cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
         },
@@ -32,24 +25,64 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: { user } } = await supabase.auth.getUser();
   const { pathname } = request.nextUrl;
 
-  // Redirect unauthenticated users to login
-  if (!user && !pathname.startsWith('/auth')) {
+  // ── Helper: fetch role once and reuse ────────────────────────────────────────
+  let _role: string | null = null;
+  async function getRole(): Promise<string | null> {
+    if (_role) return _role;
+    if (!user) return null;
+    const { data } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    _role = data?.role ?? null;
+    return _role;
+  }
+
+  function redirect(path: string) {
     const url = request.nextUrl.clone();
-    url.pathname = '/auth/login';
+    url.pathname = path;
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from login
+  // ── 1. Unauthenticated → login ───────────────────────────────────────────────
+  if (!user && !pathname.startsWith('/auth')) {
+    return redirect('/auth/login');
+  }
+
+  // ── 2. Authenticated on login page → role-based home ────────────────────────
   if (user && pathname.startsWith('/auth')) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    const role = await getRole();
+    return redirect(role === 'shopfloor_worker' ? '/report' : '/dashboard');
+  }
+
+  // ── 3. Shopfloor workers blocked from dashboard ──────────────────────────────
+  if (user && pathname.startsWith('/dashboard')) {
+    const role = await getRole();
+    if (role === 'shopfloor_worker') return redirect('/report');
+  }
+
+  // ── 4. Non-workers blocked from /report ─────────────────────────────────────
+  if (user && pathname.startsWith('/report')) {
+    const role = await getRole();
+    if (role !== 'shopfloor_worker') return redirect('/dashboard');
+  }
+
+  // ── 5. Non-admins blocked from /dashboard/admin ──────────────────────────────
+  if (user && pathname.startsWith('/dashboard/admin')) {
+    const role = await getRole();
+    if (role !== 'admin') return redirect('/dashboard');
+  }
+
+  // ── 6. Non-admins blocked from admin API routes ───────────────────────────────
+  if (user && pathname.startsWith('/api/admin')) {
+    const role = await getRole();
+    if (role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
   }
 
   return supabaseResponse;
