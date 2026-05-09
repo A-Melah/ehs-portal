@@ -21,9 +21,12 @@ function chunkText(text: string, chunkSize = 3000, overlap = 400): string[] {
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
-  const model  = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
+  const model  = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
+  const result = await model.embedContent({
+    content:  { parts: [{ text }], role: 'user' },
+    taskType: 'RETRIEVAL_DOCUMENT' as any,
+  });
+  return result.embedding.values.slice(0, 768);
 }
 
 async function sleep(ms: number) {

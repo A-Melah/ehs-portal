@@ -12,7 +12,7 @@ CREATE TABLE public.profiles (
   email         TEXT NOT NULL,
   full_name     TEXT NOT NULL DEFAULT '',
   role          TEXT NOT NULL DEFAULT 'inspector'
-                CHECK (role IN ('inspector', 'ehs_manager', 'admin')),
+                CHECK (role IN ('shopfloor_worker', 'inspector', 'ehs_manager', 'admin')),
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -54,14 +54,12 @@ CREATE TABLE public.regulations (
   statute_title  TEXT NOT NULL,
   section        TEXT NOT NULL,
   content        TEXT NOT NULL,
-  embedding      VECTOR(768),  -- text-embedding-004 dimensions
+  embedding      VECTOR(768),  -- gemini-embedding-001 dimensions (768, MRL-truncated)
   created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Index for fast vector similarity search
-CREATE INDEX ON public.regulations
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+CREATE INDEX ON public.regulations USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- ─── CHECKLIST TEMPLATES ─────────────────────────────────────────────────────
 CREATE TABLE public.checklist_templates (

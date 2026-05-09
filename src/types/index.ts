@@ -130,7 +130,8 @@ export interface HazardReport {
 // ─── Compliance Audit Types ───────────────────────────────────────────────────
 
 export type ComplianceArea = 'Safety' | 'Health' | 'Environment';
-export type LineItemStatus = 'compliant' | 'non_compliant' | 'not_applicable' | 'not_assessed';
+export type LineItemStatus  = 'compliant' | 'non_compliant' | 'not_applicable' | 'not_assessed';
+export type InspectorAnswer = 'yes' | 'partial' | 'no' | null;
 export type AuditStatus    = 'in_progress' | 'completed' | 'submitted';
 
 export interface FacilitySection {
@@ -150,6 +151,7 @@ export interface LegalRequirement {
   compliance_measures:  string;
   owner:                string;
   default_frequency:    string;
+  suggested_due_date:   string;
   applies_to_sections:  string[];
 }
 
@@ -173,12 +175,17 @@ export interface AuditLineItem {
   requirement_id:     string;
   section:            string;
   status:             LineItemStatus;
+  inspector_answer:   InspectorAnswer;
   inspector_notes:    string | null;
   evidence_url:       string | null;
   ai_verdict:         string | null;
   ai_override_status: LineItemStatus | null;
   ai_override_reason: string | null;
+  ai_responsible:     string | null;
+  ai_due_date:        string | null;
+  ai_measures:        string | null;
   responsible_person: string | null;
+  frequency:          string | null;
   due_date:           string | null;
   requirement?:       LegalRequirement;
 }

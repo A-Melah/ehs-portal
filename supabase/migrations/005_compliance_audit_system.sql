@@ -40,9 +40,7 @@ CREATE TABLE public.legal_requirements (
 );
 
 -- Vector index for RAG
-CREATE INDEX ON public.legal_requirements
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
+CREATE INDEX ON public.legal_requirements USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- ─── Compliance Audits ────────────────────────────────────────────────────────
 CREATE TABLE public.compliance_audits (

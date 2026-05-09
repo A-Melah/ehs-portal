@@ -1,38 +1,31 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
-  CheckCircle, XCircle, Minus, Loader2, AlertTriangle,
-  ChevronDown, ChevronRight, Save, Send, Sparkles
+  CheckCircle, XCircle, MinusCircle, Loader2,
+  ChevronDown, ChevronRight, Save, Send, User, Clock, Calendar
 } from 'lucide-react';
-import type { LegalRequirement, AuditLineItem, ComplianceAudit, LineItemStatus } from '@/types';
+import type { LegalRequirement, AuditLineItem, ComplianceAudit, LineItemStatus, InspectorAnswer } from '@/types';
+
+type Answer = 'yes' | 'partial' | 'no' | null;
 
 interface LineState {
-  finding:            string;       // inspector's field observation
+  answer:             Answer;
   status:             LineItemStatus;
-  ai_verdict:         string | null;
-  gap:                string | null;
-  recommended_action: string | null;
-  urgency:            string | null;
+  compliance_note:    string | null;
   responsible_person: string;
+  frequency:          string;
   due_date:           string;
   loading:            boolean;
-  analysed:           boolean;
+  saved:              boolean;
 }
 
-const statusConfig: Record<LineItemStatus, { icon: any; color: string; bg: string; label: string; border: string }> = {
-  compliant:      { icon: CheckCircle, color: 'text-brand-600', bg: 'bg-brand-50',  label: 'Compliant',     border: 'border-brand-200' },
-  non_compliant:  { icon: XCircle,     color: 'text-red-600',   bg: 'bg-red-50',    label: 'Non-Compliant', border: 'border-red-200' },
-  not_applicable: { icon: Minus,       color: 'text-gray-500',  bg: 'bg-gray-100',  label: 'N/A',           border: 'border-gray-200' },
-  not_assessed:   { icon: Minus,       color: 'text-gray-300',  bg: 'bg-white',     label: 'Pending',       border: 'border-[var(--color-border)]' },
-};
-
-const urgencyStyle: Record<string, string> = {
-  immediate:  'bg-red-100 text-red-700',
-  short_term: 'bg-amber-100 text-amber-700',
-  long_term:  'bg-blue-100 text-blue-700',
+const answerConfig = {
+  yes:     { label: 'Yes — Implemented',         icon: CheckCircle,  color: 'text-brand-600', bg: 'bg-brand-50',  ring: 'ring-brand-400',  border: 'border-brand-300' },
+  partial: { label: 'Partial — Needs Improvement', icon: MinusCircle, color: 'text-amber-600', bg: 'bg-amber-50',  ring: 'ring-amber-400',  border: 'border-amber-300' },
+  no:      { label: 'No — Not Implemented',       icon: XCircle,      color: 'text-red-600',   bg: 'bg-red-50',    ring: 'ring-red-400',    border: 'border-red-300'  },
 };
 
 const areaColors: Record<string, string> = {
@@ -55,7 +48,6 @@ export default function ComplianceAuditForm({
 
   const buildKey = (reqId: string, section: string) => `${reqId}::${section}`;
 
-  // Build initial state
   const initial: Record<string, LineState> = {};
   requirements.forEach(req => {
     (audit.sections as string[]).forEach(section => {
@@ -63,16 +55,14 @@ export default function ComplianceAuditForm({
       const key      = buildKey(req.id, section);
       const existing = existingLineItems.find(li => li.requirement_id === req.id && li.section === section);
       initial[key] = {
-        finding:            existing?.inspector_notes ?? '',
+        answer:             (existing?.inspector_answer as Answer) ?? null,
         status:             (existing?.status as LineItemStatus) ?? 'not_assessed',
-        ai_verdict:         existing?.ai_verdict ?? null,
-        gap:                null,
-        recommended_action: null,
-        urgency:            null,
+        compliance_note:    existing?.ai_verdict ?? null,
         responsible_person: existing?.responsible_person ?? req.owner,
-        due_date:           existing?.due_date ?? '',
+        frequency:          existing?.frequency ?? req.default_frequency,
+        due_date:           existing?.due_date ?? req.suggested_due_date ?? 'Continuous',
         loading:            false,
-        analysed:           !!existing?.ai_verdict,
+        saved:              !!existing?.inspector_answer,
       };
     });
   });
@@ -97,13 +87,10 @@ export default function ComplianceAuditForm({
     });
   }
 
-  async function runAI(req: LegalRequirement, section: string) {
-    const key   = buildKey(req.id, section);
-    const state = lines[key];
-    if (!state.finding.trim()) return;
-
-    update(key, { loading: true });
-    setExpanded(prev => new Set([...prev, key]));
+  async function handleAnswer(req: LegalRequirement, section: string, answer: Answer) {
+    if (!answer) return;
+    const key = buildKey(req.id, section);
+    update(key, { answer, loading: true, compliance_note: null });
 
     try {
       const res  = await fetch('/api/compliance/ai-inference', {
@@ -115,25 +102,29 @@ export default function ComplianceAuditForm({
           legalRef:         `${req.legal_document} — ${req.source_section}`,
           section,
           area:             req.area,
-          inspectorFinding: state.finding,
+          inspectorAnswer:  answer,
+          owner:            req.owner,
+          defaultFrequency: req.default_frequency,
+          suggestedDueDate: req.suggested_due_date,
         }),
       });
       const data = await res.json();
       update(key, {
         loading:            false,
-        analysed:           true,
-        status:             data.status ?? 'non_compliant',
-        ai_verdict:         data.verdict ?? null,
-        gap:                data.gap ?? null,
-        recommended_action: data.recommended_action ?? null,
-        urgency:            data.urgency ?? null,
+        saved:              true,
+        status:             data.status ?? (answer === 'yes' ? 'compliant' : 'non_compliant'),
+        compliance_note:    data.compliance_note ?? null,
+        responsible_person: data.responsible_person ?? req.owner,
+        frequency:          data.frequency ?? req.default_frequency,
+        due_date:           data.due_date ?? 'Continuous',
       });
     } catch {
+      // Fallback — derive from answer without AI
       update(key, {
-        loading:    false,
-        analysed:   true,
-        status:     'non_compliant',
-        ai_verdict: 'AI analysis failed. Please review manually.',
+        loading:  false,
+        saved:    true,
+        status:   answer === 'yes' ? 'compliant' : 'non_compliant',
+        compliance_note: null,
       });
     }
   }
@@ -151,12 +142,12 @@ export default function ComplianceAuditForm({
         requirement_id:     reqId,
         section,
         status:             state.status,
-        inspector_notes:    state.finding || null,
-        ai_verdict:         state.ai_verdict,
-        ai_override_status: null,
-        ai_override_reason: state.recommended_action ?? null,
-        responsible_person: state.responsible_person || null,
-        due_date:           state.due_date || null,
+        inspector_answer:   state.answer,
+        inspector_notes:    state.compliance_note,
+        ai_verdict:         state.compliance_note,
+        responsible_person: state.responsible_person,
+        frequency:          state.frequency,
+        due_date:           state.due_date,
       };
     });
 
@@ -173,10 +164,10 @@ export default function ComplianceAuditForm({
     setSubmitting(true);
     await saveProgress();
 
+    // Denominator = ALL non-N/A line items (not_assessed counts as non-compliant)
     const allLines  = Object.values(lines).filter(l => l.status !== 'not_applicable');
     const compliant = allLines.filter(l => l.status === 'compliant').length;
-    const total     = allLines.filter(l => l.status !== 'not_assessed').length;
-    const score     = total > 0 ? Math.round((compliant / total) * 100) : 0;
+    const score     = allLines.length > 0 ? Math.round((compliant / allLines.length) * 100) : 0;
 
     await supabase
       .from('compliance_audits')
@@ -188,31 +179,29 @@ export default function ComplianceAuditForm({
     setSubmitting(false);
   }
 
-  // Section requirements grouped by area
   const sectionReqs = requirements.filter(r => r.applies_to_sections.includes(activeSection));
   const grouped     = sectionReqs.reduce<Record<string, LegalRequirement[]>>((acc, r) => {
     (acc[r.area] = acc[r.area] ?? []).push(r);
     return acc;
   }, {});
 
-  // Section-level stats
   const sectionLines      = Object.entries(lines).filter(([k]) => k.endsWith(`::${activeSection}`)).map(([, v]) => v);
-  const analysedCount     = sectionLines.filter(l => l.analysed).length;
+  const answeredCount     = sectionLines.filter(l => l.answer !== null).length;
   const compliantCount    = sectionLines.filter(l => l.status === 'compliant').length;
   const nonCompliantCount = sectionLines.filter(l => l.status === 'non_compliant').length;
 
   return (
-    <div className="fade-up space-y-6 max-w-4xl">
+    <div className="fade-up space-y-5 max-w-4xl">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3 justify-between">
         <div>
           <h1 className="text-3xl font-display">{audit.title}</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1">
             {audit.period && <span className="font-medium">{audit.period} · </span>}
-            Enter your field observation for each requirement — AI will determine compliance status automatically.
+            Validate each compliance measure — AI assigns status automatically.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
           <button onClick={saveProgress} disabled={saving}
             className="btn-ghost flex items-center gap-2 py-2 text-sm">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
@@ -221,7 +210,7 @@ export default function ComplianceAuditForm({
           <button onClick={submitAudit} disabled={submitting}
             className="btn-primary flex items-center gap-2 py-2 text-sm">
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            {submitting ? 'Submitting…' : 'Complete Audit'}
+            {submitting ? 'Completing…' : 'Complete Audit'}
           </button>
         </div>
       </div>
@@ -229,13 +218,13 @@ export default function ComplianceAuditForm({
       {/* Section tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(audit.sections as string[]).map(section => {
-          const sl        = Object.entries(lines).filter(([k]) => k.endsWith(`::${section}`)).map(([, v]) => v);
-          const sNonComp  = sl.filter(l => l.status === 'non_compliant').length;
-          const sAnalysed = sl.filter(l => l.analysed).length;
-          const sTotal    = sl.length;
+          const sl       = Object.entries(lines).filter(([k]) => k.endsWith(`::${section}`)).map(([, v]) => v);
+          const sAns     = sl.filter(l => l.answer !== null).length;
+          const sNonComp = sl.filter(l => l.status === 'non_compliant').length;
           return (
             <button key={section} onClick={() => setSection(section)}
-              className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap
+              className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
+                          transition-all whitespace-nowrap
                 ${activeSection === section
                   ? 'bg-brand-600 text-white shadow-sm'
                   : 'bg-white border border-[var(--color-border)] text-[var(--color-muted)] hover:border-gray-300'
@@ -243,7 +232,7 @@ export default function ComplianceAuditForm({
               {section}
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold
                 ${activeSection === section ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                {sAnalysed}/{sTotal}
+                {sAns}/{sl.length}
               </span>
               {sNonComp > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold
@@ -256,21 +245,19 @@ export default function ComplianceAuditForm({
         })}
       </div>
 
-      {/* Section progress bar */}
+      {/* Progress bar */}
       <div className="card p-4">
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-medium">{activeSection} — {sectionReqs.length} requirements</p>
           <p className="text-sm text-[var(--color-muted)]">
             <span className="text-brand-600 font-semibold">{compliantCount}</span> compliant ·{' '}
             {nonCompliantCount > 0 && <span className="text-red-600 font-semibold">{nonCompliantCount} non-compliant · </span>}
-            <span>{sectionReqs.length - analysedCount} remaining</span>
+            <span>{sectionReqs.length - answeredCount} remaining</span>
           </p>
         </div>
-        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-          <div className="h-full flex">
-            <div className="bg-brand-500 transition-all" style={{ width: `${(compliantCount / sectionReqs.length) * 100}%` }} />
-            <div className="bg-red-400 transition-all"   style={{ width: `${(nonCompliantCount / sectionReqs.length) * 100}%` }} />
-          </div>
+        <div className="h-2 rounded-full bg-gray-100 overflow-hidden flex">
+          <div className="bg-brand-500 transition-all duration-500" style={{ width: `${(compliantCount / sectionReqs.length) * 100}%` }} />
+          <div className="bg-red-400 transition-all duration-500"   style={{ width: `${(nonCompliantCount / sectionReqs.length) * 100}%` }} />
         </div>
       </div>
 
@@ -291,27 +278,22 @@ export default function ComplianceAuditForm({
               const state  = lines[key];
               if (!state) return null;
 
-              const cfg     = statusConfig[state.status];
-              const Icon    = cfg.icon;
-              const isOpen  = expanded.has(key);
+              const isOpen = expanded.has(key);
+              const answerCfg = state.answer ? answerConfig[state.answer] : null;
 
               return (
                 <div key={req.id}
                   className={`card border-2 transition-all duration-200
-                    ${state.status === 'non_compliant' ? 'border-red-200 bg-red-50/30' :
+                    ${state.status === 'non_compliant' ? 'border-red-200' :
                       state.status === 'compliant'     ? 'border-brand-200/60' :
                       'border-transparent'}`}>
 
-                  {/* Collapsed header */}
                   <div className="p-4">
                     <div className="flex items-start gap-3">
-                      {/* Status indicator */}
-                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${cfg.bg}`}>
-                        {state.loading
-                          ? <Loader2 size={14} className="animate-spin text-amber-600" />
-                          : <Icon size={14} className={cfg.color} />
-                        }
-                      </div>
+                      {/* Status dot */}
+                      <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0
+                        ${state.status === 'compliant'    ? 'bg-brand-500' :
+                          state.status === 'non_compliant' ? 'bg-red-500' : 'bg-gray-300'}`} />
 
                       <div className="flex-1 min-w-0">
                         {/* Legal ref */}
@@ -319,100 +301,112 @@ export default function ComplianceAuditForm({
                           {idx + 1}. {req.legal_document} · {req.source_section}
                         </p>
 
-                        {/* Requirement summary */}
-                        <p className="text-sm font-medium leading-snug mb-3">
-                          {req.specific_requirement.slice(0, 160)}{req.specific_requirement.length > 160 ? '…' : ''}
+                        {/* Compliance measure — AI-generated or seeded from legal requirement */}
+                        <p className="text-sm font-semibold text-[var(--color-text)] mb-1">
+                          {(existingLineItems.find(li => li.requirement_id === req.id && li.section === activeSection) as any)?.ai_measures || req.compliance_measures}
+                        </p>
+                        <p className="text-xs text-[var(--color-muted)] mb-3 leading-relaxed">
+                          {req.specific_requirement.slice(0, 120)}{req.specific_requirement.length > 120 ? '…' : ''}
                         </p>
 
-                        {/* Finding input */}
-                        <div className="flex gap-2">
-                          <textarea
-                            value={state.finding}
-                            onChange={e => update(key, { finding: e.target.value, analysed: false, status: 'not_assessed' })}
-                            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAI(req, activeSection); }}
-                            rows={2}
-                            placeholder="Describe what you observed in the field… (Ctrl+Enter to analyse)"
-                            className="flex-1 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-white
-                                       focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs resize-none transition"
-                          />
-                          <button
-                            onClick={() => runAI(req, activeSection)}
-                            disabled={state.loading || !state.finding.trim()}
-                            title="Analyse with AI"
-                            className={`flex-shrink-0 flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl
-                                        text-xs font-medium transition-all
-                                        ${state.finding.trim()
-                                          ? 'bg-brand-600 hover:bg-brand-700 text-white'
-                                          : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
-                          >
-                            {state.loading
-                              ? <Loader2 size={14} className="animate-spin" />
-                              : <Sparkles size={14} />
-                            }
-                            <span>Analyse</span>
-                          </button>
-                        </div>
+                        {/* Yes / Partial / No buttons */}
+                        {!state.loading && (
+                          <div className="flex flex-wrap gap-2 mb-3">
+                            {(['yes', 'partial', 'no'] as Answer[]).map(opt => {
+                              const cfg  = answerConfig[opt!];
+                              const Icon = cfg.icon;
+                              const selected = state.answer === opt;
+                              return (
+                                <button key={opt} onClick={() => handleAnswer(req, activeSection, opt)}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
+                                              border transition-all
+                                    ${selected
+                                      ? `${cfg.bg} ${cfg.color} ${cfg.border} ring-2 ${cfg.ring}`
+                                      : 'bg-white border-[var(--color-border)] text-[var(--color-muted)] hover:border-gray-300'
+                                    }`}>
+                                  <Icon size={12} />
+                                  {cfg.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
 
-                        {/* AI result summary */}
-                        {state.analysed && state.ai_verdict && !state.loading && (
-                          <div className={`mt-2 p-3 rounded-xl text-xs space-y-1
-                            ${state.status === 'non_compliant' ? 'bg-red-50 border border-red-100' :
-                              state.status === 'compliant'     ? 'bg-brand-50 border border-brand-100' :
-                              'bg-gray-50 border border-gray-100'}`}>
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${cfg.bg} ${cfg.color}`}>
-                                AI: {cfg.label}
-                              </span>
-                              {state.urgency && (
-                                <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${urgencyStyle[state.urgency]}`}>
-                                  {state.urgency.replace('_', ' ')}
-                                </span>
-                              )}
-                            </div>
-                            <p className="leading-relaxed">{state.ai_verdict}</p>
-                            {state.gap && (
-                              <p className="text-red-600"><strong>Gap:</strong> {state.gap}</p>
-                            )}
-                            {state.recommended_action && (
-                              <p className="text-[var(--color-muted)]"><strong>Action:</strong> {state.recommended_action}</p>
-                            )}
+                        {/* Loading */}
+                        {state.loading && (
+                          <div className="flex items-center gap-2 text-xs text-amber-700 mb-3">
+                            <Loader2 size={11} className="animate-spin" /> AI determining status…
+                          </div>
+                        )}
+
+                        {/* AI-populated metadata chips */}
+                        {state.saved && !state.loading && (
+                          <div className="flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                              <User size={9} /> {state.responsible_person}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                              <Clock size={9} /> {state.frequency}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                              <Calendar size={9} /> {state.due_date}
+                            </span>
                           </div>
                         )}
                       </div>
 
                       <button onClick={() => toggleExpand(key)}
-                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100 text-[var(--color-muted)] transition-colors">
+                        className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100
+                                   text-[var(--color-muted)] transition-colors">
                         {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </button>
                     </div>
                   </div>
 
-                  {/* Expanded details */}
+                  {/* Expanded — full legal text + editable fields */}
                   {isOpen && (
-                    <div className="border-t border-[var(--color-border)] p-4 space-y-4 bg-[var(--color-surface)] rounded-b-2xl">
+                    <div className="border-t border-[var(--color-border)] p-4 space-y-4
+                                    bg-[var(--color-surface)] rounded-b-2xl">
                       <div>
-                        <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-1">Full Legal Requirement</p>
+                        <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-1">
+                          Full Legal Requirement
+                        </p>
                         <p className="text-xs leading-relaxed">{req.specific_requirement}</p>
                       </div>
-                      <div>
-                        <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-1">Required Compliance Measures</p>
-                        <p className="text-xs leading-relaxed">{req.compliance_measures}</p>
-                      </div>
-                      <div className="grid sm:grid-cols-2 gap-3">
+
+                      <div className="grid sm:grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-xs font-medium mb-1">Responsible person</label>
-                          <input
+                          <label className="block text-xs font-medium mb-1">Responsible Person</label>
+                          <select
                             value={state.responsible_person}
                             onChange={e => update(key, { responsible_person: e.target.value })}
                             className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-white
-                                       focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs transition"
-                          />
+                                       focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs transition">
+                            {['HR','Engineering/SHE','SHE','Engineering','Admin',
+                              'Manufacturing/SHE','SHE/Clinic','Manufacturing/Engineering',
+                              'Quality Assurance/QC','Admin/Supply Chain'].map(o => (
+                              <option key={o} value={o}>{o}</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium mb-1">Due date</label>
-                          <input type="date"
+                          <label className="block text-xs font-medium mb-1">Frequency</label>
+                          <select
+                            value={state.frequency}
+                            onChange={e => update(key, { frequency: e.target.value })}
+                            className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-white
+                                       focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs transition">
+                            {['Shift','Daily','Monthly','Quarterly','Bi-annually','Annually','As applicable','Continuous'].map(o => (
+                              <option key={o} value={o}>{o}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium mb-1">Due Date</label>
+                          <input
                             value={state.due_date}
                             onChange={e => update(key, { due_date: e.target.value })}
+                            placeholder="e.g. Continuous, Annually, N/A"
                             className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-white
                                        focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs transition"
                           />
@@ -431,7 +425,6 @@ export default function ComplianceAuditForm({
         <p className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl border border-red-100">{error}</p>
       )}
 
-      {/* Bottom submit */}
       <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
         <button onClick={saveProgress} disabled={saving} className="btn-ghost flex items-center gap-2 py-2.5">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
