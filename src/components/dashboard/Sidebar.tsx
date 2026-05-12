@@ -7,18 +7,18 @@ import { createClient } from '@/lib/supabase/client';
 import {
   ShieldCheck, ShieldAlert, LayoutDashboard, Package,
   ClipboardList, FileBarChart, LogOut, ChevronRight,
-  Users, Scale, BookOpen, Menu, X
+  Users, Scale, BookOpen, Menu, X, ListChecks,
 } from 'lucide-react';
 import type { User } from '@/types';
-import NotificationBell from '@/components/dashboard/NotificationBell';
+// import NotificationBell from '@/components/dashboard/NotificationBell';
 
 const BASE_NAV = [
   { href: '/dashboard',             label: 'Overview',    icon: LayoutDashboard },
   { href: '/dashboard/assets',      label: 'Assets',      icon: Package },
   { href: '/dashboard/inspections', label: 'Inspections', icon: ClipboardList },
-  { href: '/dashboard/reports',     label: 'Reports',     icon: FileBarChart },
-  { href: '/dashboard/hazards',     label: 'Hazards',     icon: ShieldAlert },
-  { href: '/dashboard/compliance',  label: 'Compliance',  icon: Scale },
+  { href: '/dashboard/hazards',     label: 'Reports',     icon: ShieldAlert },
+  { href: '/dashboard/compliance',    label: 'Compliance',    icon: Scale },
+  { href: '/dashboard/requirements',  label: 'Requirements',  icon: ListChecks },
 ];
 
 const ADMIN_NAV      = { href: '/dashboard/admin',            label: 'Staff',      icon: Users };
@@ -154,11 +154,11 @@ export default function Sidebar({ profile }: { profile: User | null }) {
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="text-white" size={14} />
           </div>
-          <p className="text-sm font-semibold truncate">EHS Compliance AI</p>
+          <p className="text-sm font-semibold truncate">EHS</p>
         </div>
 
         {/* Single NotificationBell instance — mobile top bar only */}
-        <NotificationBell />
+        {/* <NotificationBell /> */}
       </header>
 
       {/* ── Mobile backdrop ───────────────────────────────────────── */}
@@ -186,8 +186,8 @@ export default function Sidebar({ profile }: { profile: User | null }) {
               <ShieldCheck className="text-white" size={16} />
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted)]">EHS Portal</p>
-              <p className="text-sm font-semibold leading-tight">Compliance AI</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--color-muted)]">EHS Portal</p>
+              {/* <p className="text-sm font-semibold leading-tight"></p> */}
             </div>
           </div>
           <button
@@ -214,11 +214,11 @@ export default function Sidebar({ profile }: { profile: User | null }) {
               <ShieldCheck className="text-white" size={18} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] uppercase tracking-widest text-[var(--color-muted)]">EHS Portal</p>
-              <p className="text-sm font-semibold leading-tight">Compliance AI</p>
+              <p className="text-[16px] font-semibold uppercase tracking-widest text-[var(--color-muted)]">EHS Portal</p>
+              {/* <p className="text-sm font-semibold leading-tight">Compliance AI</p> */}
             </div>
             {/* Single NotificationBell instance — desktop sidebar only */}
-            <NotificationBell />
+            {/* <NotificationBell /> */}
           </div>
         </div>
 

@@ -13,53 +13,59 @@ export async function POST(req: NextRequest) {
     const supabase = await createClient();
     let legalContext = '';
 
-    // Step 1: Try direct legal reference first
-    if (legalRefId) {
-      const { data: reg } = await supabase
-        .from('regulations')
-        .select('statute_title, section, content')
-        .eq('id', legalRefId)
-        .single();
-
-      if (reg) {
-        legalContext = `${reg.statute_title} — ${reg.section}\n${reg.content}`;
+    // Step 1: RAG — search legal_document_chunks for relevant context
+    try {
+      const embedding = await generateEmbedding(`${assetType} inspection failure: ${questionText}`);
+      const { data: chunks } = await supabase.rpc('search_legal_chunks', {
+        query_embedding: embedding,
+        match_threshold: 0.4,
+        match_count:     3,
+        filter_area:     null,
+      });
+      if (chunks?.length) {
+        legalContext = chunks
+          .map((c: any) => `[${c.document_title}]\n${c.content}`)
+          .join('\n\n---\n\n');
       }
-    }
+    } catch { /* fall through */ }
 
-    // Step 2: RAG — vector search for semantically similar regulations
+    // Step 2: fallback — search legal_requirements by asset type keywords
     if (!legalContext) {
       try {
-        const embedding = await generateEmbedding(`${assetType} failure: ${questionText}`);
+        const { data: reqs } = await supabase
+          .from('legal_requirements')
+          .select('legal_document, source_section, specific_requirement, compliance_measures')
+          .eq('active', true)
+          .ilike('specific_requirement', `%${assetType}%`)
+          .limit(3);
 
-        const { data: matches } = await supabase.rpc('search_regulations', {
-          query_embedding: embedding,
-          match_threshold: 0.5,
-          match_count: 3,
-        });
-
-        if (matches && matches.length > 0) {
-          legalContext = matches
-            .map((m: any) => `${m.statute_title} — ${m.section}\n${m.content}`)
+        if (reqs?.length) {
+          legalContext = reqs
+            .map(r => `${r.legal_document} — ${r.source_section}:\n${r.specific_requirement}`)
             .join('\n\n');
         }
-      } catch {
-        // Embeddings may not be seeded yet — fall through to general audit
-      }
+      } catch { /* fall through */ }
     }
 
-    // Step 3: Fallback context if nothing found
+    // Step 3: generic fallback
     if (!legalContext) {
       legalContext = `General EHS best practices and Nigerian Factories Act requirements for ${assetType} safety compliance.`;
     }
 
-    // Step 4: Run Gemini compliance audit
     const result = await runComplianceAudit(questionText, legalContext, assetType);
-
     return NextResponse.json(result);
+
   } catch (err) {
     console.error('AI audit error:', err);
     return NextResponse.json(
-      { error: 'AI audit failed', breach_level: 'moderate', verdict: 'Unable to complete AI audit. Please review manually.' },
+      {
+        error:        'AI audit failed',
+        breach_level: 'moderate',
+        verdict:      'AI analysis could not be completed. Please review this item manually.',
+        breach_detected: true,
+        legal_references: [],
+        recommended_actions: ['Review the failed item with your EHS team', 'Check relevant regulatory requirements'],
+      },
       { status: 500 }
     );
   }

@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect }          from 'next/navigation';
 import { Users, UserPlus, ShieldCheck } from 'lucide-react';
 import UserTable   from '@/components/dashboard/admin/UserTable';
-import InviteModal from '@/components/dashboard/admin/InviteModal';
+import InviteButton from '@/components/dashboard/admin/InviteButton';
 
 export default async function AdminPage() {
   // Guard — admins only
@@ -47,14 +47,14 @@ export default async function AdminPage() {
   return (
     <div className="fade-up space-y-6">
       {/* Header */}
-      <div className="flex items-end justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3 justify-between">
         <div>
           <h1 className="text-3xl font-display">Staff Management</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1">
             Onboard staff and manage their portal access
           </p>
         </div>
-        <InviteModal />
+        <InviteButton />
       </div>
 
       {/* Role breakdown */}

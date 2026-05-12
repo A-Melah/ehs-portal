@@ -1,13 +1,16 @@
 import { createClient } from '@/lib/supabase/server';
-import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { Plus, FileCheck, CheckCircle, AlertTriangle, Clock } from 'lucide-react';
+import { redirect }     from 'next/navigation';
+import Link             from 'next/link';
+import { CheckCircle, Clock, AlertTriangle, XCircle } from 'lucide-react';
 import NewAuditButton from '@/components/compliance/NewAuditButton';
 
 const statusConfig = {
+  completed:   { icon: CheckCircle,   color: 'text-brand-600', bg: 'bg-brand-50',  label: 'Completed'   },
+  submitted:   { icon: CheckCircle,   color: 'text-blue-600',  bg: 'bg-blue-50',   label: 'Submitted'   },
   in_progress: { icon: Clock,         color: 'text-amber-600', bg: 'bg-amber-50',  label: 'In Progress' },
-  completed:   { icon: CheckCircle,   color: 'text-brand-600', bg: 'bg-brand-50',  label: 'Completed' },
-  submitted:   { icon: FileCheck,     color: 'text-blue-600',  bg: 'bg-blue-50',   label: 'Submitted' },
+  pending:     { icon: Clock,         color: 'text-gray-400',  bg: 'bg-gray-50',   label: 'Pending'     },
+  preparing:   { icon: Clock,         color: 'text-blue-500',  bg: 'bg-blue-50',   label: 'Preparing'   },
+  failed:      { icon: XCircle,       color: 'text-red-600',   bg: 'bg-red-50',    label: 'Failed'      },
 };
 
 export default async function CompliancePage() {
@@ -15,76 +18,77 @@ export default async function CompliancePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/login');
 
-  const [{ data: audits }, { data: sections }, { count: reqCount }] = await Promise.all([
+  const [{ data: audits }, { count: industryCount }, { count: cacheCount }] = await Promise.all([
     supabase
       .from('compliance_audits')
       .select('*, auditor:profiles(full_name)')
       .order('created_at', { ascending: false })
-      .limit(20),
-    supabase
-      .from('facility_sections')
-      .select('*')
-      .eq('active', true)
-      .order('order_index'),
-    supabase
-      .from('legal_requirements')
-      .select('*', { count: 'exact', head: true })
-      .eq('active', true),
+      .limit(50),
+    supabase.from('industries').select('*', { count: 'exact', head: true }),
+    supabase.from('industry_requirements_cache').select('*', { count: 'exact', head: true }),
   ]);
 
   return (
     <div className="fade-up space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-0 justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3 justify-between">
         <div>
           <h1 className="text-3xl font-display">Legal Compliance Audits</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1">
-            {reqCount} legal requirements across {sections?.length ?? 0} facility sections
+            {industryCount ?? 0} industries · {cacheCount ?? 0} cached requirement sets
           </p>
         </div>
-        <NewAuditButton sections={sections ?? []} />
+        <NewAuditButton />
       </div>
 
-      {/* Section cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-        {sections?.map(s => (
-          <div key={s.id} className="card p-4 text-center">
-            <p className="text-sm font-semibold">{s.name}</p>
-            <p className="text-xs text-[var(--color-muted)] mt-1">{s.description}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Audits table */}
+      {/* Audit history */}
       <div className="card overflow-hidden">
         <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-sm font-semibold">Audit History</h2>
         </div>
         <div className="divide-y divide-[var(--color-border)]">
+          {audits?.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm text-[var(--color-muted)]">No audits yet — create your first audit above.</p>
+            </div>
+          )}
           {audits?.map(audit => {
-            const cfg = statusConfig[audit.status as keyof typeof statusConfig] ?? statusConfig.in_progress;
-            const Icon = cfg.icon;
+            const cfg   = statusConfig[audit.status as keyof typeof statusConfig] ?? statusConfig.in_progress;
+            const Icon  = cfg.icon;
             const score = audit.overall_score ? Math.round(audit.overall_score) : null;
+            const industryLabel = audit.industry_name
+              ?? (Array.isArray(audit.sections) ? (audit.sections as string[]).join(', ') : '');
+            const subLabel = audit.sub_sector_name;
+
             return (
               <Link key={audit.id} href={`/dashboard/compliance/${audit.id}`}
-                className="flex items-start sm:items-center gap-3 px-4 sm:px-6 py-4 hover:bg-[var(--color-surface)] transition-colors">
+                className="flex items-start sm:items-center gap-3 px-4 sm:px-6 py-4
+                           hover:bg-[var(--color-surface)] transition-colors">
                 <div className={`w-9 h-9 rounded-xl ${cfg.bg} flex items-center justify-center flex-shrink-0`}>
                   <Icon size={16} className={cfg.color} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{audit.title}</p>
                   <p className="text-xs text-[var(--color-muted)]">
-                    {(audit.auditor as any)?.full_name} · {new Date(audit.created_at).toLocaleDateString('en-NG')}
+                    {new Date(audit.created_at).toLocaleDateString('en-NG')}
                     {audit.period ? ` · ${audit.period}` : ''}
                   </p>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    {(audit.sections as string[]).map(s => (
-                      <span key={s} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{s}</span>
-                    ))}
+                    {industryLabel && (
+                      <span className="text-[10px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium">
+                        {industryLabel}
+                      </span>
+                    )}
+                    {subLabel && (
+                      <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        {subLabel}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
                   {score !== null ? (
-                    <p className={`text-lg font-display font-semibold ${score >= 80 ? 'text-brand-600' : score >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
+                    <p className={`text-lg font-display font-semibold
+                      ${score >= 80 ? 'text-brand-600' : score >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
                       {score}%
                     </p>
                   ) : (
@@ -96,12 +100,6 @@ export default async function CompliancePage() {
               </Link>
             );
           })}
-          {!audits?.length && (
-            <div className="px-6 py-12 text-center">
-              <FileCheck size={32} className="mx-auto text-[var(--color-muted)] opacity-30 mb-3" />
-              <p className="text-sm text-[var(--color-muted)]">No audits yet. Start your first compliance audit.</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

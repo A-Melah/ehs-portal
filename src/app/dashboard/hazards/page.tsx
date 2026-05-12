@@ -1,150 +1,83 @@
 import { createClient } from '@/lib/supabase/server';
-import { ShieldAlert, Clock, CheckCircle, Eye } from 'lucide-react';
-import HazardStatusUpdater from '@/components/dashboard/HazardStatusUpdater';
+import { redirect }     from 'next/navigation';
+import { ShieldAlert, AlertTriangle, Eye, Siren } from 'lucide-react';
+import ReportsList from '@/components/dashboard/ReportsList';
 
-const severityStyle = {
-  low:      { bg: 'bg-green-100',  text: 'text-green-700',  label: 'Low' },
-  moderate: { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Moderate' },
-  high:     { bg: 'bg-orange-100', text: 'text-orange-700', label: 'High' },
-  critical: { bg: 'bg-red-100',    text: 'text-red-700',    label: 'Critical' },
-};
-
-const statusStyle = {
-  open:      { icon: ShieldAlert,  color: 'text-red-600',    bg: 'bg-red-50',    label: 'Open' },
-  in_review: { icon: Eye,         color: 'text-amber-600',  bg: 'bg-amber-50',  label: 'In Review' },
-  resolved:  { icon: CheckCircle, color: 'text-brand-600',  bg: 'bg-brand-50',  label: 'Resolved' },
-};
-
-export default async function HazardsPage() {
+export default async function HazardsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ type?: string }>;
+}) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/auth/login');
 
-  const { data: reports } = await supabase
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const params     = await searchParams;
+  const activeType = params.type;
+
+  let query = supabase
     .from('hazard_reports')
-    .select('*')
+    .select('*, reporter:profiles(full_name)')
     .order('created_at', { ascending: false });
 
-  const openCount     = reports?.filter(r => r.status === 'open').length ?? 0;
-  const criticalCount = reports?.filter(r => r.severity === 'critical').length ?? 0;
-  const resolvedCount = reports?.filter(r => r.status === 'resolved').length ?? 0;
+  if (activeType) query = query.eq('report_type', activeType);
+
+  const { data: reports } = await query;
+
+  const { data: allReports } = await supabase
+    .from('hazard_reports')
+    .select('report_type, status');
+
+  const counts = {
+    all:       allReports?.length ?? 0,
+    hazard:    allReports?.filter(r => r.report_type === 'hazard').length    ?? 0,
+    near_miss: allReports?.filter(r => r.report_type === 'near_miss').length ?? 0,
+    incident:  allReports?.filter(r => r.report_type === 'incident').length  ?? 0,
+    accident:  allReports?.filter(r => r.report_type === 'accident').length  ?? 0,
+    open:      allReports?.filter(r => r.status === 'open').length           ?? 0,
+  };
+
+  const canUpdateStatus = ['admin', 'ehs_manager', 'inspector'].includes(profile?.role ?? '');
+
+  const tabs = [
+    { key: '',          label: 'All',        count: counts.all,       icon: ShieldAlert   },
+    { key: 'hazard',    label: 'Hazards',    count: counts.hazard,    icon: ShieldAlert   },
+    { key: 'near_miss', label: 'Near Misses',count: counts.near_miss, icon: Eye           },
+    { key: 'incident',  label: 'Incidents',  count: counts.incident,  icon: AlertTriangle },
+    { key: 'accident',  label: 'Accidents',  count: counts.accident,  icon: Siren         },
+  ];
 
   return (
     <div className="fade-up space-y-6">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-display">Hazard Reports</h1>
-          <p className="text-sm text-[var(--color-muted)] mt-1">
-            Anonymous shopfloor submissions — reported without login
-          </p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-[var(--color-muted)]">Public report URL</p>
-          <code className="text-xs font-mono bg-white border border-[var(--color-border)] px-2 py-1 rounded-lg">
-            /report
-          </code>
-        </div>
+      <div>
+        <h1 className="text-3xl font-display">Reports & Incidents</h1>
+        <p className="text-sm text-[var(--color-muted)] mt-1">
+          {counts.open} open · {counts.all} total · click any report to view details
+        </p>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
-            <ShieldAlert size={16} className="text-red-600" />
-          </div>
-          <div>
-            <p className="text-xl font-display text-red-600">{openCount}</p>
-            <p className="text-xs text-[var(--color-muted)]">Open</p>
-          </div>
-        </div>
-        <div className="card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
-            <Clock size={16} className="text-orange-600" />
-          </div>
-          <div>
-            <p className="text-xl font-display text-orange-600">{criticalCount}</p>
-            <p className="text-xs text-[var(--color-muted)]">Critical</p>
-          </div>
-        </div>
-        <div className="card p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center">
-            <CheckCircle size={16} className="text-brand-600" />
-          </div>
-          <div>
-            <p className="text-xl font-display text-brand-600">{resolvedCount}</p>
-            <p className="text-xs text-[var(--color-muted)]">Resolved</p>
-          </div>
-        </div>
+      {/* Type filter tabs */}
+      <div className="flex flex-wrap gap-2">
+        {tabs.map(({ key, label, count, icon: Icon }) => (
+          <a key={key}
+            href={key ? `/dashboard/hazards?type=${key}` : '/dashboard/hazards'}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all
+              ${(activeType ?? '') === key
+                ? 'bg-brand-600 text-white border-brand-600'
+                : 'bg-white border-[var(--color-border)] text-[var(--color-muted)] hover:border-gray-300'
+              }`}>
+            <Icon size={14} />
+            {label}
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold
+              ${(activeType ?? '') === key ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>
+              {count}
+            </span>
+          </a>
+        ))}
       </div>
 
-      {/* Reports list */}
-      <div className="space-y-3">
-        {reports?.map(report => {
-          const sev = severityStyle[report.severity as keyof typeof severityStyle] ?? severityStyle.moderate;
-          const sts = statusStyle[report.status as keyof typeof statusStyle]       ?? statusStyle.open;
-          const StsIcon = sts.icon;
-
-          return (
-            <div key={report.id} className="card p-5">
-              <div className="flex items-start gap-4">
-                {/* Status icon */}
-                <div className={`w-10 h-10 rounded-xl ${sts.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                  <StsIcon size={18} className={sts.color} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  {/* Top row */}
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${sev.bg} ${sev.text}`}>
-                      {sev.label}
-                    </span>
-                    <span className="text-xs text-[var(--color-muted)]">·</span>
-                    <span className="text-xs font-medium text-[var(--color-text)]">{report.location}</span>
-                    <span className="text-xs text-[var(--color-muted)] ml-auto">
-                      {new Date(report.created_at).toLocaleDateString('en-NG', {
-                        day: 'numeric', month: 'short', year: 'numeric',
-                        hour: '2-digit', minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-
-                  {/* Description */}
-                  <p className="text-sm text-[var(--color-text)] leading-relaxed">{report.description}</p>
-
-                  {/* Evidence photo */}
-                  {report.evidence_url && (
-                    <a
-                      href={report.evidence_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block mt-2"
-                    >
-                      <img
-                        src={report.evidence_url}
-                        alt="Hazard evidence"
-                        className="h-24 w-auto rounded-lg border border-[var(--color-border)] object-cover hover:opacity-90 transition-opacity"
-                      />
-                    </a>
-                  )}
-
-                  {/* Status updater */}
-                  <div className="mt-3">
-                    <HazardStatusUpdater reportId={report.id} currentStatus={report.status} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {!reports?.length && (
-        <div className="card p-12 text-center">
-          <ShieldAlert size={36} className="mx-auto text-[var(--color-muted)] mb-3 opacity-40" />
-          <p className="text-sm text-[var(--color-muted)]">No hazard reports yet.</p>
-          <p className="text-xs text-[var(--color-muted)] mt-1">
-            Share <code className="font-mono">/report</code> with shopfloor workers to start receiving reports.
-          </p>
-        </div>
-      )}
+      <ReportsList reports={reports ?? []} canUpdateStatus={canUpdateStatus} />
     </div>
   );
 }

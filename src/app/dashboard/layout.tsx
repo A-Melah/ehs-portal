@@ -22,7 +22,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         Desktop: md:ml-64 offsets for the fixed 256px sidebar. No top padding.
       */}
       <main className="pt-14 md:pt-0 md:ml-64 min-h-screen">
-        <div className="p-4 sm:p-6 lg:p-8 w-full overflow-x-hidden">
+        <div className="p-4 sm:p-6 lg:p-8 overflow-x-hidden">
           {children}
         </div>
       </main>

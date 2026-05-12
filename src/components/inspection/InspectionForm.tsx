@@ -39,7 +39,7 @@ export default function InspectionForm({ assets }: Props) {
     if (!selectedAsset) return;
     supabase
       .from('checklist_templates')
-      .select('*, regulation:regulations(statute_title, section, content)')
+      .select('*')
       .eq('asset_type', selectedAsset.type)
       .order('order_index')
       .then(({ data }) => {
@@ -66,46 +66,11 @@ export default function InspectionForm({ assets }: Props) {
     }
   }
 
-  async function handleAnswer(question: ChecklistTemplate, passed: boolean) {
-    const prev = answers[question.id];
+  function handleAnswer(question: ChecklistTemplate, passed: boolean) {
     setAnswers(a => ({
       ...a,
-      [question.id]: { ...prev, value: passed, loading: !passed, aiVerdict: null, breachLevel: null },
+      [question.id]: { ...a[question.id], value: passed, loading: false, aiVerdict: null, breachLevel: null },
     }));
-
-    if (!passed) {
-      try {
-        const res = await fetch('/api/ai-audit', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({
-            questionText: question.question_text,
-            assetType:    selectedAsset?.type,
-            legalRefId:   question.legal_ref_id,
-          }),
-        });
-        const result = await res.json();
-        setAnswers(a => ({
-          ...a,
-          [question.id]: {
-            ...a[question.id],
-            loading:     false,
-            aiVerdict:   result.verdict,
-            breachLevel: result.breach_level,
-          },
-        }));
-      } catch {
-        setAnswers(a => ({
-          ...a,
-          [question.id]: {
-            ...a[question.id],
-            loading:     false,
-            aiVerdict:   'AI audit unavailable.',
-            breachLevel: 'moderate',
-          },
-        }));
-      }
-    }
   }
 
   async function handleEvidenceUpload(questionId: string, file: File) {
@@ -181,8 +146,8 @@ export default function InspectionForm({ assets }: Props) {
     }));
 
     await supabase.from('responses').insert(responses);
-    router.push('/dashboard/inspections');
-    router.refresh();
+    // Hard navigate so server re-fetches fresh inspection data
+    window.location.href = '/dashboard/inspections';
   }
 
   const breachColors: Record<string, string> = {
@@ -278,7 +243,7 @@ export default function InspectionForm({ assets }: Props) {
                             : 'bg-white border border-[var(--color-border)] text-[var(--color-muted)] hover:border-brand-500 hover:text-brand-600'
                           }`}
                       >
-                        <CheckCircle size={14} /> Pass
+                        <CheckCircle size={14} /> Yes
                       </button>
                       <button
                         onClick={() => handleAnswer(q, false)}
@@ -288,7 +253,7 @@ export default function InspectionForm({ assets }: Props) {
                             : 'bg-white border border-[var(--color-border)] text-[var(--color-muted)] hover:border-red-400 hover:text-red-500'
                           }`}
                       >
-                        <XCircle size={14} /> Fail
+                        <XCircle size={14} /> No
                       </button>
                     </div>
 
@@ -344,16 +309,7 @@ export default function InspectionForm({ assets }: Props) {
                       </div>
                     )}
 
-                    {/* AI verdict */}
-                    {state?.aiVerdict && !state.loading && (
-                      <div className="mt-3 p-3 rounded-xl bg-white/70 border text-xs space-y-1">
-                        <div className="flex items-center gap-1.5 font-semibold">
-                          <AlertTriangle size={12} />
-                          AI Verdict — {breach?.toUpperCase()} breach
-                        </div>
-                        <p className="text-[var(--color-text)] leading-relaxed">{state.aiVerdict}</p>
-                      </div>
-                    )}
+
                   </div>
                 </div>
               </div>

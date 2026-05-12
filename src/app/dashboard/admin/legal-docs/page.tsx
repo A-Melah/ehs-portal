@@ -3,6 +3,10 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect }          from 'next/navigation';
 import { FileText, CheckCircle, AlertCircle, Loader2, BookOpen } from 'lucide-react';
 import LegalDocUploader from '@/components/compliance/LegalDocUploader';
+import LegalDocActions  from '@/components/compliance/LegalDocActions';
+import ExtractButton   from '@/components/compliance/ExtractButton';
+import ReEmbedButton      from '@/components/compliance/ReEmbedButton';
+import ReprocessAllButton from '@/components/compliance/ReprocessAllButton';
 
 const statusConfig = {
   uploaded:   { label: 'Uploaded',   color: 'text-amber-600',  bg: 'bg-amber-50',  icon: Loader2 },
@@ -32,8 +36,14 @@ export default async function LegalDocsPage() {
     .select('*')
     .order('created_at', { ascending: false });
 
-  const totalChunks   = docs?.reduce((a, d) => a + (d.chunk_count ?? 0), 0) ?? 0;
+  const { count: reqCount } = await admin
+    .from('legal_requirements')
+    .select('*', { count: 'exact', head: true })
+    .eq('active', true);
+
+  // totalChunks from stored column — may be stale
   const processedDocs = docs?.filter(d => d.status === 'processed').length ?? 0;
+  const totalChunks = docs?.filter(d => d.status === 'processed').reduce((sum, d) => sum + (d.chunk_count || 0), 0) ?? 0;
 
   return (
     <div className="fade-up space-y-6">
@@ -41,14 +51,18 @@ export default async function LegalDocsPage() {
         <div>
           <h1 className="text-3xl font-display">Legal Documents</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1">
-            Upload your 12 regulatory PDFs — Gemini will extract and index them for AI-powered compliance inference
+            Upload regulatory PDFs — Gemini will extract and index them for compliance inference
           </p>
         </div>
-        <LegalDocUploader />
+        <div className="flex gap-2">
+          <ReprocessAllButton />
+          <ReEmbedButton />
+          <LegalDocUploader />
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="card p-5">
           <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center mb-3">
             <BookOpen size={16} className="text-brand-600" />
@@ -69,6 +83,13 @@ export default async function LegalDocsPage() {
           </div>
           <p className="text-2xl font-display text-amber-600">{totalChunks.toLocaleString()}</p>
           <p className="text-xs text-[var(--color-muted)]">Text chunks indexed</p>
+        </div>
+        <div className="card p-5">
+          <div className="w-9 h-9 rounded-xl bg-violet-50 flex items-center justify-center mb-3">
+            <FileText size={16} className="text-violet-600" />
+          </div>
+          <p className="text-2xl font-display text-violet-600">{reqCount ?? 0}</p>
+          <p className="text-xs text-[var(--color-muted)]">Legal requirements</p>
         </div>
       </div>
 
@@ -110,16 +131,29 @@ export default async function LegalDocsPage() {
                     {doc.file_name}
                     {doc.file_size_bytes && ` · ${(doc.file_size_bytes / 1024 / 1024).toFixed(1)} MB`}
                     {doc.chunk_count ? ` · ${doc.chunk_count} chunks indexed` : ''}
-                    {doc.processed_at && ` · Processed ${new Date(doc.processed_at).toLocaleDateString('en-NG')}`}
+                    {doc.processed_at && ` · Indexed ${new Date(doc.processed_at).toLocaleDateString('en-NG')}`}
                   </p>
-                  {doc.error_message && (
+                  {doc.error_message && !doc.error_message.match(/^\d/) && (
                     <p className="text-xs text-red-600 mt-0.5">{doc.error_message}</p>
+                  )}
+                  {doc.error_message && doc.error_message.match(/^\d/) && (
+                    <p className="text-xs text-brand-600 mt-0.5">✓ {doc.error_message}</p>
                   )}
                 </div>
 
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full flex-shrink-0 ${cfg.bg} ${cfg.color}`}>
-                  {cfg.label}
-                </span>
+                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${cfg.bg} ${cfg.color}`}>
+                    {cfg.label}
+                  </span>
+                  {(doc.status === 'failed' || doc.status === 'uploaded') && (
+                    <LegalDocActions documentId={doc.id} />
+                  )}
+                  <ExtractButton
+                    documentId={doc.id}
+                    documentTitle={doc.document_title}
+                    status={doc.status}
+                  />
+                </div>
               </div>
             );
           })}

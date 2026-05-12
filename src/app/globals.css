@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --font-display: 'DM Serif Display', serif;
+  --font-display: 'Playfair Display', serif;
   --font-body: 'DM Sans', sans-serif;
   --font-mono: 'DM Mono', monospace;
 
@@ -25,8 +25,12 @@
     font-family: var(--font-body);
   }
 
-  h1, h2, h3 {
+h1, h2, h3, .font-display {
     font-family: var(--font-display);
+    font-weight: 700; /* Playfair looks best at 700 or 800 (Extra Bold) */
+    letter-spacing: -0.02em; /* Tighten for that premium "editorial" look */
+    line-height: 1.1;
+    font-style: normal;
   }
 }
 

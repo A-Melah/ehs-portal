@@ -23,38 +23,23 @@ export default async function AuditDetailPage({
 
   if (!audit) notFound();
 
-  const { data: requirements } = await supabase
-    .from('legal_requirements')
-    .select('*')
-    .eq('active', true)
-    .overlaps('applies_to_sections', audit.sections)
-    .order('area')
-    .order('legal_document');
-
+  // Line items now contain inline requirement data — no separate legal_requirements fetch needed
   const { data: lineItems } = await supabase
     .from('audit_line_items')
     .select('*')
-    .eq('audit_id', audit.id);
+    .eq('audit_id', audit.id)
+    .order('section');
 
-  // ── Route by status ────────────────────────────────────────────────────────
+  const items = lineItems ?? [];
 
-  // Completed / submitted → recalculate and re-save score, then show report
+  // ── Route by status ──────────────────────────────────────────────────────
+
   if (audit.status === 'completed' || audit.status === 'submitted') {
-    // Recalculate with correct formula and update DB if stale
-    const reqs  = requirements ?? [];
-    const items = lineItems    ?? [];
-    let compliant = 0, total = 0;
-    reqs.forEach(req => {
-      (audit.sections as string[]).forEach(section => {
-        if (!req.applies_to_sections.includes(section)) return;
-        total++;
-        const li = items.find(i => i.requirement_id === req.id && i.section === section);
-        if (li?.status === 'compliant') compliant++;
-      });
-    });
+    // Recalculate score from line items directly
+    const compliant = items.filter(i => i.status === 'compliant').length;
+    const total     = items.length;
     const correctScore = total > 0 ? Math.round((compliant / total) * 100) : 0;
 
-    // Silently update if the stored score differs
     if (Math.round(audit.overall_score ?? 0) !== correctScore) {
       await supabase
         .from('compliance_audits')
@@ -66,31 +51,31 @@ export default async function AuditDetailPage({
     return (
       <ComplianceAuditReport
         audit={audit}
-        requirements={reqs}
+        requirements={[]}
         lineItems={items}
       />
     );
   }
 
-  // Pending → show prep loader (AI hasn't generated measures yet)
-  // Preparing / failed → also show prep loader (still running or needs retry)
   if (audit.status === 'pending' || audit.status === 'preparing' || audit.status === 'failed') {
     return (
       <AuditPrepLoader
         auditId={audit.id}
         auditTitle={audit.title}
-        sections={audit.sections as string[]}
+        industryId={audit.industry_id}
+        subSectorId={audit.sub_sector_id}
+        industryName={audit.industry_name ?? (audit.sections as string[])?.[0] ?? 'General'}
+        subSectorName={audit.sub_sector_name}
         currentStatus={audit.status}
       />
     );
   }
 
-  // in_progress → show audit form
   return (
     <ComplianceAuditForm
       audit={audit}
-      requirements={requirements ?? []}
-      existingLineItems={lineItems ?? []}
+      requirements={[]}
+      existingLineItems={items}
     />
   );
 }

@@ -15,9 +15,11 @@ interface LineState {
   answer:             Answer;
   status:             LineItemStatus;
   compliance_note:    string | null;
+  inspector_notes:    string;
   responsible_person: string;
   frequency:          string;
   due_date:           string;
+  ai_measures:        string | null;
   loading:            boolean;
   saved:              boolean;
 }
@@ -46,30 +48,28 @@ export default function ComplianceAuditForm({
   const router   = useRouter();
   const supabase = createClient();
 
-  const buildKey = (reqId: string, section: string) => `${reqId}::${section}`;
-
   const initial: Record<string, LineState> = {};
-  requirements.forEach(req => {
-    (audit.sections as string[]).forEach(section => {
-      if (!req.applies_to_sections.includes(section)) return;
-      const key      = buildKey(req.id, section);
-      const existing = existingLineItems.find(li => li.requirement_id === req.id && li.section === section);
-      initial[key] = {
-        answer:             (existing?.inspector_answer as Answer) ?? null,
-        status:             (existing?.status as LineItemStatus) ?? 'not_assessed',
-        compliance_note:    existing?.ai_verdict ?? null,
-        responsible_person: existing?.responsible_person ?? req.owner,
-        frequency:          existing?.frequency ?? req.default_frequency,
-        due_date:           existing?.due_date ?? req.suggested_due_date ?? 'Continuous',
-        loading:            false,
-        saved:              !!existing?.inspector_answer,
-      };
-    });
+  // Build state from line items directly — requirements are inline
+  existingLineItems.forEach((li: any) => {
+    initial[li.id] = {
+      answer:             (li.inspector_answer as Answer) ?? null,
+      status:             (li.status as LineItemStatus)   ?? 'not_assessed',
+      compliance_note:    li.ai_verdict                   ?? null,
+      responsible_person: li.responsible_person           ?? 'SHE',
+      frequency:          li.frequency                    ?? 'Annually',
+      due_date:           li.due_date                     ?? 'Continuous',
+      ai_measures:        li.ai_measures                  ?? null,
+      inspector_notes:    li.inspector_notes              ?? '',
+      loading:            false,
+      saved:              !!li.inspector_answer,
+    };
   });
 
   const [lines, setLines]           = useState<Record<string, LineState>>(initial);
   const [expanded, setExpanded]     = useState<Set<string>>(new Set());
-  const [activeSection, setSection] = useState<string>((audit.sections as string[])[0]);
+  // Derive areas from line items
+  const areas = [...new Set(existingLineItems.map((li: any) => li.area ?? li.section ?? 'General'))];
+  const [activeSection, setSection] = useState<string>(areas[0] ?? 'General');
   const [saving, setSaving]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedAt, setSavedAt]       = useState<Date | null>(null);
@@ -87,9 +87,9 @@ export default function ComplianceAuditForm({
     });
   }
 
-  async function handleAnswer(req: LegalRequirement, section: string, answer: Answer) {
+  async function handleAnswer(req: any, section: string, answer: Answer) {
     if (!answer) return;
-    const key = buildKey(req.id, section);
+    const key = req.id;
     update(key, { answer, loading: true, compliance_note: null });
 
     try {
@@ -134,17 +134,19 @@ export default function ComplianceAuditForm({
     setError('');
 
     const upserts = Object.entries(lines).map(([key, state]) => {
-      const [reqId, section] = key.split('::');
-      const existing = existingLineItems.find(li => li.requirement_id === reqId && li.section === section);
+      // key is li.id directly (no :: separator in new system)
+      const li = existingLineItems.find(l => l.id === key) as any;
       return {
-        ...(existing ? { id: existing.id } : {}),
+        id:                 key,
         audit_id:           audit.id,
-        requirement_id:     reqId,
-        section,
+        section:            li?.area ?? li?.section ?? 'General',
+        area:               li?.area ?? li?.section ?? 'General',
         status:             state.status,
         inspector_answer:   state.answer,
-        inspector_notes:    state.compliance_note,
+        // inspector_notes:    state.compliance_note,
         ai_verdict:         state.compliance_note,
+        ai_measures:        state.ai_measures,
+        inspector_notes:    state.inspector_notes,
         responsible_person: state.responsible_person,
         frequency:          state.frequency,
         due_date:           state.due_date,
@@ -179,13 +181,15 @@ export default function ComplianceAuditForm({
     setSubmitting(false);
   }
 
-  const sectionReqs = requirements.filter(r => r.applies_to_sections.includes(activeSection));
-  const grouped     = sectionReqs.reduce<Record<string, LegalRequirement[]>>((acc, r) => {
-    (acc[r.area] = acc[r.area] ?? []).push(r);
+  const sectionReqs = existingLineItems.filter((li: any) => (li.area ?? li.section) === activeSection);
+  const grouped = sectionReqs.reduce<Record<string, any[]>>((acc, r) => {
+    const doc = (r as any).legal_document ?? 'General';
+    if (!acc[doc]) acc[doc] = [];
+    acc[doc].push(r);
     return acc;
   }, {});
 
-  const sectionLines      = Object.entries(lines).filter(([k]) => k.endsWith(`::${activeSection}`)).map(([, v]) => v);
+  const sectionLines = sectionReqs.map(li => lines[li.id]).filter(Boolean);
   const answeredCount     = sectionLines.filter(l => l.answer !== null).length;
   const compliantCount    = sectionLines.filter(l => l.status === 'compliant').length;
   const nonCompliantCount = sectionLines.filter(l => l.status === 'non_compliant').length;
@@ -198,7 +202,7 @@ export default function ComplianceAuditForm({
           <h1 className="text-3xl font-display">{audit.title}</h1>
           <p className="text-sm text-[var(--color-muted)] mt-1">
             {audit.period && <span className="font-medium">{audit.period} · </span>}
-            Validate each compliance measure — AI assigns status automatically.
+            Validate each compliance measure
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
@@ -217,10 +221,11 @@ export default function ComplianceAuditForm({
 
       {/* Section tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {(audit.sections as string[]).map(section => {
-          const sl       = Object.entries(lines).filter(([k]) => k.endsWith(`::${section}`)).map(([, v]) => v);
-          const sAns     = sl.filter(l => l.answer !== null).length;
-          const sNonComp = sl.filter(l => l.status === 'non_compliant').length;
+        {areas.map(section => {
+          const sectionLIs = existingLineItems.filter((li: any) => (li.area ?? li.section) === section);
+          const sl         = sectionLIs.map(li => lines[li.id]).filter(Boolean);
+          const sAns       = sl.filter(l => l.answer !== null).length;
+          const sNonComp   = sl.filter(l => l.status === 'non_compliant').length;
           return (
             <button key={section} onClick={() => setSection(section)}
               className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
@@ -261,28 +266,34 @@ export default function ComplianceAuditForm({
         </div>
       </div>
 
-      {/* Requirements by area */}
-      {(['Safety', 'Health', 'Environment'] as const).map(area => {
-        const reqs = grouped[area];
+      {/* Requirements by document */}
+      {Object.entries(grouped).map(([doc, reqs]) => {
         if (!reqs?.length) return null;
 
         return (
-          <div key={area} className="space-y-3">
+          <div key={doc} className="space-y-3">
             <div className="flex items-center gap-2 sticky top-0 bg-[var(--color-surface)] py-2 z-10">
-              <span className={`text-xs font-semibold px-3 py-1 rounded-full ${areaColors[area]}`}>{area}</span>
+              <span className={`text-xs font-semibold px-3 py-1 rounded-full ${areaColors[doc] ?? 'bg-gray-100 text-gray-700'}`}>{doc}</span>
               <span className="text-xs text-[var(--color-muted)]">{reqs.length} requirements</span>
             </div>
 
             {reqs.map((req, idx) => {
-              const key    = buildKey(req.id, activeSection);
-              const state  = lines[key];
+              const key    = req.id;
+              const state  = lines[key] ?? {
+                answer: null, status: 'not_assessed', compliance_note: null,
+                responsible_person: (req as any).responsible_person ?? 'SHE',
+                frequency: (req as any).frequency ?? 'Annually',
+                due_date: (req as any).due_date ?? 'Continuous',
+                ai_measures: (req as any).ai_measures ?? null,
+                loading: false, saved: false,
+              };
               if (!state) return null;
 
               const isOpen = expanded.has(key);
               const answerCfg = state.answer ? answerConfig[state.answer] : null;
 
               return (
-                <div key={req.id}
+                <div key={req.id ?? req.id}
                   className={`card border-2 transition-all duration-200
                     ${state.status === 'non_compliant' ? 'border-red-200' :
                       state.status === 'compliant'     ? 'border-brand-200/60' :
@@ -301,9 +312,9 @@ export default function ComplianceAuditForm({
                           {idx + 1}. {req.legal_document} · {req.source_section}
                         </p>
 
-                        {/* Compliance measure — AI-generated or seeded from legal requirement */}
+                        {/* Compliance measure — AI-prepared or seeded fallback */}
                         <p className="text-sm font-semibold text-[var(--color-text)] mb-1">
-                          {(existingLineItems.find(li => li.requirement_id === req.id && li.section === activeSection) as any)?.ai_measures || req.compliance_measures}
+                          {state.ai_measures || (req as any).compliance_measures || '—'}
                         </p>
                         <p className="text-xs text-[var(--color-muted)] mb-3 leading-relaxed">
                           {req.specific_requirement.slice(0, 120)}{req.specific_requirement.length > 120 ? '…' : ''}
@@ -335,7 +346,7 @@ export default function ComplianceAuditForm({
                         {/* Loading */}
                         {state.loading && (
                           <div className="flex items-center gap-2 text-xs text-amber-700 mb-3">
-                            <Loader2 size={11} className="animate-spin" /> AI determining status…
+                            <Loader2 size={11} className="animate-spin" /> status…
                           </div>
                         )}
 
@@ -371,10 +382,25 @@ export default function ComplianceAuditForm({
                         <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-1">
                           Full Legal Requirement
                         </p>
-                        <p className="text-xs leading-relaxed">{req.specific_requirement}</p>
+                        <p className="text-xs leading-relaxed">{(req as any).specific_requirement ?? (req as any).specific_requirement}</p>
                       </div>
 
                       <div className="grid sm:grid-cols-3 gap-3">
+                        <div className="sm:col-span-3">
+                          <label className="block text-xs font-medium mb-1">
+                            Inspector Notes
+                            <span className="text-[var(--color-muted)] font-normal ml-1">(optional — observations, context, evidence)</span>
+                          </label>
+                          <textarea
+                            value={state.inspector_notes}
+                            onChange={e => update(key, { inspector_notes: e.target.value })}
+                            rows={2}
+                            placeholder="e.g. Certificate sighted, last renewed Jan 2026. Action required by Q3."
+                            className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-white
+                                       focus:outline-none focus:ring-2 focus:ring-brand-500 text-xs
+                                       resize-none transition"
+                          />
+                        </div>
                         <div>
                           <label className="block text-xs font-medium mb-1">Responsible Person</label>
                           <select

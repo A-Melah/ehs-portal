@@ -56,8 +56,25 @@ Breach levels:
   }
 }
 
-export async function generateEmbedding(text: string): Promise<number[]> {
+export async function generateEmbedding(text: string, retries = 3): Promise<number[]> {
   const model = genAI.getGenerativeModel({ model: 'gemini-embedding-001' });
-  const result = await model.embedContent(text);
-  return result.embedding.values;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const result = await (model as any).embedContent({
+        content: { parts: [{ text }], role: 'user' },
+        outputDimensionality: 1024,
+      });
+      return result.embedding.values;
+    } catch (e: any) {
+      const isTransient = e?.message?.includes('500') || e?.message?.includes('503') || e?.message?.includes('429');
+      if (isTransient && attempt < retries) {
+        const wait = attempt * 2000; // 2s, 4s backoff
+        console.warn(`[embedding] attempt ${attempt} failed, retrying in ${wait}ms...`);
+        await new Promise(r => setTimeout(r, wait));
+      } else {
+        throw e;
+      }
+    }
+  }
+  throw new Error('Embedding failed after ' + retries + ' attempts');
 }

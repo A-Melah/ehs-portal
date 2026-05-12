@@ -29,7 +29,7 @@ async function generateEmbedding(text: string): Promise<number[]> {
     content:  { parts: [{ text }], role: 'user' },
     taskType: 'RETRIEVAL_DOCUMENT' as any,
   });
-  return result.embedding.values.slice(0, 768);
+  return result.embedding.values.slice(0, 1024);
 }
 
 async function sleep(ms: number) {

@@ -1,59 +1,87 @@
-// src/app/api/admin/invite/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient }      from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
-import { NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
-  try {
-    const supabase = await createClient();
-    
-    // 1. Verify the requester is actually an Admin
-    // We don't want just anyone hitting this API endpoint
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
+  const { data: caller } = await supabase
+    .from('profiles').select('role').eq('id', user.id).single();
+  if (caller?.role !== 'admin')
+    return NextResponse.json({ error: 'Forbidden — admin only' }, { status: 403 });
 
-    if (profile?.role !== 'ehs_manager' && profile?.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 0.3 });
-    }
+  const { email, full_name, role, resend } = await req.json();
+  const validRoles = ['shopfloor_worker', 'inspector', 'ehs_manager', 'admin'];
 
-    // 2. Parse the body
-    const { email, fullName, role } = await request.json();
+  if (!email || !role)
+    return NextResponse.json({ error: 'email and role are required.' }, { status: 400 });
+  if (!validRoles.includes(role))
+    return NextResponse.json({ error: 'Invalid role.' }, { status: 400 });
 
-    if (!email || !fullName || !role) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
+  const admin = createAdminClient();
 
-    // 3. Initialize the Admin Client (God Mode)
-    const adminClient = createAdminClient();
+  // ── Resend: look up existing user and re-invite ──────────────────────────
+  if (resend) {
+    const { data: { users }, error: listErr } = await admin.auth.admin.listUsers();
+    if (listErr) return NextResponse.json({ error: listErr.message }, { status: 500 });
 
-    // 4. Execute the Invite
-    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
-      data: { 
-        full_name: fullName, 
-        role: role 
-      },
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+    const existing = users.find(u => u.email === email);
+    if (!existing)
+      return NextResponse.json({ error: 'No user found with this email.' }, { status: 404 });
+
+    // Re-send invite by calling inviteUserByEmail — Supabase resets the token
+    const { error: resendErr } = await admin.auth.admin.inviteUserByEmail(email, {
+      data:       { full_name: full_name ?? existing.user_metadata?.full_name, role },
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/login`,
     });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    // Supabase returns "already registered" when user confirmed — use generateLink instead
+    if (resendErr?.message?.includes('already been registered')) {
+      const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+        type:       'magiclink',
+        email,
+        options:    { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/login` },
+      });
+      if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+
+      // Update role in profile
+      await admin.from('profiles').update({ role }).eq('email', email);
+
+      return NextResponse.json({
+        success: true,
+        message: 'Magic link sent — user can log in with this link.',
+        link:    linkData?.properties?.action_link,
+      });
     }
 
-    return NextResponse.json({ 
-      message: `Successfully invited ${email}`,
-      user: data.user 
-    }, { status: 200 });
+    if (resendErr) return NextResponse.json({ error: resendErr.message }, { status: 500 });
 
-  } catch (err) {
-    console.error('API Route Error:', err);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    // Update role in case it changed
+    await admin.from('profiles').update({ role }).eq('id', existing.id);
+    return NextResponse.json({ success: true, message: 'Invite resent successfully.' });
   }
+
+  // ── New invite ────────────────────────────────────────────────────────────
+  const { data: newUser, error: createError } = await admin.auth.admin.inviteUserByEmail(email, {
+    data:       { full_name, role },
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/login`,
+  });
+
+  if (createError) {
+    const message = createError.message.includes('already been registered')
+      ? 'A user with this email already exists. Use "Resend Invite" instead.'
+      : createError.message;
+    return NextResponse.json({ error: message, alreadyExists: true }, { status: 400 });
+  }
+
+  await admin.from('profiles').upsert({
+    id:        newUser.user.id,
+    email,
+    full_name,
+    role,
+  }, { onConflict: 'id' });
+
+  return NextResponse.json({ success: true, user_id: newUser.user.id });
 }

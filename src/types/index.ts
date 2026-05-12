@@ -170,24 +170,29 @@ export interface ComplianceAudit {
 }
 
 export interface AuditLineItem {
-  id:                 string;
-  audit_id:           string;
-  requirement_id:     string;
-  section:            string;
-  status:             LineItemStatus;
-  inspector_answer:   InspectorAnswer;
-  inspector_notes:    string | null;
-  evidence_url:       string | null;
-  ai_verdict:         string | null;
-  ai_override_status: LineItemStatus | null;
-  ai_override_reason: string | null;
-  ai_responsible:     string | null;
-  ai_due_date:        string | null;
-  ai_measures:        string | null;
-  responsible_person: string | null;
-  frequency:          string | null;
-  due_date:           string | null;
-  requirement?:       LegalRequirement;
+  id:                   string;
+  audit_id:             string;
+  requirement_id:       string | null;
+  section:              string;
+  area:                 string | null;
+  status:               LineItemStatus;
+  inspector_answer:     InspectorAnswer;
+  inspector_notes:      string | null;
+  evidence_url:         string | null;
+  ai_verdict:           string | null;
+  ai_override_status:   LineItemStatus | null;
+  ai_override_reason:   string | null;
+  ai_responsible:       string | null;
+  ai_due_date:          string | null;
+  ai_measures:          string | null;
+  responsible_person:   string | null;
+  frequency:            string | null;
+  due_date:             string | null;
+  // Inline requirement fields (new industry-based system)
+  legal_document:       string | null;
+  source_section:       string | null;
+  specific_requirement: string | null;
+  requirement?:         LegalRequirement;
 }
 
 export interface ComplianceSummaryByArea {

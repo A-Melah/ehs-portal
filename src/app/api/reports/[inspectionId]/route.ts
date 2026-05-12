@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import jsPDF from 'jspdf';
 
+// Fetch image from URL and convert to base64 for jsPDF
+async function fetchImageAsBase64(url: string): Promise<{ data: string; format: string } | null> {
+  try {
+    const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const buffer = await res.arrayBuffer();
+    const bytes  = Buffer.from(buffer);
+    const b64    = bytes.toString('base64');
+    const ct     = res.headers.get('content-type') ?? 'image/jpeg';
+    const format = ct.includes('png') ? 'PNG' : 'JPEG';
+    return { data: b64, format };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ inspectionId: string }> }
@@ -136,15 +152,22 @@ export async function GET(
 
   const responses = (inspection.responses as any[]) ?? [];
 
-  responses.forEach((resp, idx) => {
+  for (let idx = 0; idx < responses.length; idx++) {
+    const resp     = responses[idx];
     const passed   = resp.value;
     const question = resp.question?.question_text ?? '—';
     const category = resp.question?.category ?? '';
     const critical = resp.question?.is_critical;
-    const verdict  = resp.ai_verdict;
-    const breach   = resp.ai_breach_level;
+    const mediaUrl = resp.media_url;
 
-    const rowH = verdict ? 24 : 14;
+    // Fetch image if present
+    let imgData: { data: string; format: string } | null = null;
+    if (mediaUrl) {
+      imgData = await fetchImageAsBase64(mediaUrl);
+    }
+
+    const imgH  = imgData ? 42 : 0;
+    const rowH  = 14 + imgH;
     checkY(rowH + 4);
 
     // Row background
@@ -157,7 +180,7 @@ export async function GET(
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'bold');
-    doc.text(passed ? 'PASS' : 'FAIL', ML + CW - 10, y + (rowH - 7) / 2 + 5, { align: 'center' });
+    doc.text(passed ? 'YES' : 'NO', ML + CW - 10, y + (rowH - 7) / 2 + 5, { align: 'center' });
 
     // Index
     doc.setTextColor(...muted);
@@ -171,24 +194,22 @@ export async function GET(
     const wrapped = doc.splitTextToSize(question, CW - 40);
     doc.text(wrapped[0], ML + 10, y + 6);
 
-    // Category tag
-    doc.setTextColor(...muted);
-    doc.setFontSize(7);
-    doc.text(category + (critical ? ' ★' : ''), ML + 10, y + 11);
-
-    // AI verdict
-    if (verdict && !passed) {
-      doc.setTextColor(breach === 'critical' ? 180 : breach === 'moderate' ? 180 : 100,
-                       breach === 'critical' ? 50 : breach === 'moderate' ? 100 : 130,
-                       breach === 'critical' ? 50 : 50);
+    // Critical indicator only
+    if (critical) {
+      doc.setTextColor(...danger);
       doc.setFontSize(7);
-      doc.setFont('helvetica', 'italic');
-      const vWrapped = doc.splitTextToSize(`AI: ${verdict}`, CW - 24);
-      doc.text(vWrapped[0], ML + 10, y + 17);
+      doc.text('Critical', ML + 10, y + 11);
+    }
+
+    // Evidence image
+    if (imgData) {
+      try {
+        doc.addImage(imgData.data, imgData.format, ML + 10, y + 15, 40, 36);
+      } catch { /* skip if image fails */ }
     }
 
     y += rowH + 2;
-  });
+  }
 
   // ── Summary footer ──────────────────────────────────────────────────────────
   checkY(30);
@@ -208,8 +229,8 @@ export async function GET(
 
   const summaryItems = [
     { label: 'Total Checks', value: String(responses.length), color: dark },
-    { label: 'Passed',       value: String(passed),           color: brand },
-    { label: 'Failed',       value: String(failed),           color: danger },
+    { label: 'Yes',       value: String(passed),           color: brand },
+    { label: 'No',       value: String(failed),           color: danger },
     { label: 'Critical Breaches', value: String(critical),   color: danger },
     { label: 'Compliance Score',  value: `${score}%`,         color: scoreColor },
   ];
