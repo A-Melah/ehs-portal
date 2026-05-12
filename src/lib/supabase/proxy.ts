@@ -56,7 +56,9 @@ export async function updateSession(request: NextRequest) {
   // ── 2. Authenticated on login page → role-based home ────────────────────────
   if (user && pathname.startsWith('/auth')) {
     const role = await getRole();
-    return redirect(role === 'shopfloor_worker' ? '/report' : '/dashboard');
+    if (role === 'shopfloor_worker') return redirect('/report');
+    if (role === 'inspector' || role === 'ehs_manager') return redirect('/inspector');
+    return redirect('/dashboard');
   }
 
   // ── 3. Shopfloor workers blocked from dashboard ──────────────────────────────
@@ -65,10 +67,12 @@ export async function updateSession(request: NextRequest) {
     if (role === 'shopfloor_worker') return redirect('/report');
   }
 
-  // ── 4. Non-workers blocked from /report ─────────────────────────────────────
+  // ── 4. /report accessible to shopfloor_workers, inspectors and ehs_managers ──
   if (user && pathname.startsWith('/report')) {
     const role = await getRole();
-    if (role !== 'shopfloor_worker') return redirect('/dashboard');
+    if (role !== 'shopfloor_worker' && role !== 'inspector' && role !== 'ehs_manager') {
+      return redirect('/dashboard');
+    }
   }
 
   // ── 5. Non-admins blocked from /dashboard/admin ──────────────────────────────

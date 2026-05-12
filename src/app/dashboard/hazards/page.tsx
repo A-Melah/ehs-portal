@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect }     from 'next/navigation';
 import { ShieldAlert, AlertTriangle, Eye, Siren } from 'lucide-react';
-import ReportsList from '@/components/dashboard/ReportsList';
+import ReportsList  from '@/components/dashboard/ReportsList';
+import ReportModal  from '@/components/dashboard/ReportModal';
 
 export default async function HazardsPage({
   searchParams,
@@ -50,11 +51,14 @@ export default async function HazardsPage({
 
   return (
     <div className="fade-up space-y-6">
-      <div>
-        <h1 className="text-3xl font-display">Reports & Incidents</h1>
-        <p className="text-sm text-[var(--color-muted)] mt-1">
-          {counts.open} open · {counts.all} total · click any report to view details
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-display">Reports & Incidents</h1>
+          <p className="text-sm text-[var(--color-muted)] mt-1">
+            {counts.open} open · {counts.all} total · click any report to view details
+          </p>
+        </div>
+        <ReportModal />
       </div>
 
       {/* Type filter tabs */}
