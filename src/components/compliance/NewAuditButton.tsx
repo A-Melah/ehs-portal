@@ -129,7 +129,8 @@ export default function NewAuditButton() {
         setError('Failed to create audit: ' + (err?.message ?? 'unknown'));
         return;
       }
-      router.push(`/dashboard/compliance/${audit.id}`);
+      await supabase.auth.refreshSession();
+      router.push(`/dashboard/compliance/${audit.id}?uid=${user.id}`);
     });
   }
 

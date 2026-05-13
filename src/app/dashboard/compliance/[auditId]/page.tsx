@@ -17,63 +17,71 @@ export default async function AuditDetailPage({
 
   const { data: audit } = await supabase
     .from('compliance_audits')
-    .select('*, auditor:profiles(full_name, email)')
+    .select('*')
     .eq('id', auditId)
     .single();
 
   if (!audit) notFound();
 
+  // Fetch auditor profile separately (avoids PostgREST schema cache join issue)
+  const { data: auditor } = await supabase
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', audit.auditor_id)
+    .single();
+
+  const auditWithAuditor = { ...audit, auditor: auditor ?? null };
+
   // Line items now contain inline requirement data — no separate legal_requirements fetch needed
   const { data: lineItems } = await supabase
     .from('audit_line_items')
     .select('*')
-    .eq('audit_id', audit.id)
+    .eq('audit_id', auditWithAuditor.id)
     .order('section');
 
   const items = lineItems ?? [];
 
   // ── Route by status ──────────────────────────────────────────────────────
 
-  if (audit.status === 'completed' || audit.status === 'submitted') {
-    // Recalculate score from line items directly
-    const compliant = items.filter(i => i.status === 'compliant').length;
-    const total     = items.length;
+  if (auditWithAuditor.status === 'completed' || auditWithAuditor.status === 'submitted') {
+    const compliant    = items.filter(i => i.status === 'compliant').length;
+    const total        = items.length;
     const correctScore = total > 0 ? Math.round((compliant / total) * 100) : 0;
 
-    if (Math.round(audit.overall_score ?? 0) !== correctScore) {
+    if (Math.round(auditWithAuditor.overall_score ?? 0) !== correctScore) {
       await supabase
         .from('compliance_audits')
         .update({ overall_score: correctScore })
         .eq('id', auditId);
-      audit.overall_score = correctScore;
+      auditWithAuditor.overall_score = correctScore;
     }
 
     return (
       <ComplianceAuditReport
-        audit={audit}
+        audit={auditWithAuditor}
         requirements={[]}
         lineItems={items}
       />
     );
   }
 
-  if (audit.status === 'pending' || audit.status === 'preparing' || audit.status === 'failed') {
+  if (auditWithAuditor.status === 'pending' || auditWithAuditor.status === 'preparing' || auditWithAuditor.status === 'failed') {
     return (
       <AuditPrepLoader
-        auditId={audit.id}
-        auditTitle={audit.title}
-        industryId={audit.industry_id}
-        subSectorId={audit.sub_sector_id}
-        industryName={audit.industry_name ?? (audit.sections as string[])?.[0] ?? 'General'}
-        subSectorName={audit.sub_sector_name}
-        currentStatus={audit.status}
+        auditId={auditWithAuditor.id}
+        auditTitle={auditWithAuditor.title}
+        industryId={auditWithAuditor.industry_id}
+        subSectorId={auditWithAuditor.sub_sector_id}
+        industryName={auditWithAuditor.industry_name ?? (auditWithAuditor.sections as string[])?.[0] ?? 'General'}
+        subSectorName={auditWithAuditor.sub_sector_name}
+        currentStatus={auditWithAuditor.status}
       />
     );
   }
 
   return (
     <ComplianceAuditForm
-      audit={audit}
+      audit={auditWithAuditor}
       requirements={[]}
       existingLineItems={items}
     />

@@ -21,7 +21,7 @@ export default async function CompliancePage() {
   const [{ data: audits }, { count: industryCount }, { count: cacheCount }] = await Promise.all([
     supabase
       .from('compliance_audits')
-      .select('*, auditor:profiles(full_name)')
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(50),
     supabase.from('industries').select('*', { count: 'exact', head: true }),
